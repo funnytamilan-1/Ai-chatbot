@@ -1,0 +1,3 @@
+{"messages":[{"role":"user","content":"What is Python?"},{"role":"assistant","content":"Python is a general-purpose programming language used to build applications, automate tasks, and work with data."}]}
+{"messages":[{"role":"user","content":"What is an API?"},{"role":"assistant","content":"An API is a defined way for software systems to communicate and exchange information."}]}
+{"messages":[{"role":"user","content":"Explain a database simply."},{"role":"assistant","content":"A database stores and organizes information so an application can find, add, update, and manage it."}]}
