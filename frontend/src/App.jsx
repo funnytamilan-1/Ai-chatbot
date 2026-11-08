@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import TrainingStudio from "./TrainingStudio.jsx";
+import { getLocalAiEngine, streamLocalAiReply } from "./localAi.js";
 import { ArrowUp, MessageSquarePlus, Plus, Sparkles, Sun, Moon, Menu, X, Trash2, Copy, Check, LogOut, UserRound, Pencil, BrainCircuit } from "lucide-react";
 
 const API = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
@@ -20,6 +21,8 @@ export default function App() {
   const [activeId, setActiveId] = useState(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [modelState, setModelState] = useState("idle");
+  const [modelProgress, setModelProgress] = useState("Local model not loaded");
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
@@ -149,63 +152,48 @@ export default function App() {
     setBusy(true);
     setError("");
     try {
-      const history = previous.slice(-20).map(m => ({ role: m.role === "assistant" ? "model" : "user", content: m.content }));
-      const body = { message: prompt, history };
-      if (activeId && !activeId.startsWith("pending-")) body.chat_id = activeId;
-      const response = await fetch(API + "/api/chat/stream", {
+      const history = previous.slice(-12).map(m => ({ role: m.role, content: m.content }));
+      setModelState("loading");
+      const reply = await streamLocalAiReply({
+        history,
+        prompt,
+        onProgress: (progress) => {
+          setModelState("loading");
+          setModelProgress(progress?.text || "Preparing the local AI model…");
+        },
+        onToken: (_token, fullText) => {
+          setModelState("ready");
+          setChats(prev => prev.map(chat => chat.id === localId
+            ? { ...chat, messages: chat.messages.map(message => message.id === assistantId ? { ...message, content: fullText } : message) }
+            : chat));
+        },
+      });
+      setModelState("ready");
+      setModelProgress("On-device AI ready");
+      const saveResponse = await fetch(API + "/api/chat/local/save", {
         method: "POST",
         credentials: "include",
         headers: authHeaders(),
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          message: prompt,
+          reply,
+          ...(activeId && !activeId.startsWith("pending-") ? { chat_id: activeId } : {}),
+        }),
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        if (response.status === 401) signOut();
-        throw new Error(data.detail || "Could not get a response. Please try again.");
-      }
-      if (!response.body) throw new Error("Streaming is not supported by this browser.");
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let streamedText = "";
-      let completed = false;
-      const handleEvent = raw => {
-        if (!raw.startsWith("data:")) return;
-        const payload = raw.slice(5).trim();
-        if (!payload) return;
-        let event;
-        try { event = JSON.parse(payload); } catch { return; }
-        if (event.error) throw new Error(event.error);
-        if (typeof event.text === "string" && event.text) {
-          streamedText += event.text;
-          setChats(prev => prev.map(chat => chat.id === localId
-            ? { ...chat, messages: chat.messages.map(message => message.id === assistantId ? { ...message, content: streamedText } : message) }
-            : chat));
-        }
-        if (event.done) {
-          completed = true;
-          const serverId = event.chat_id;
-          setChats(prev => {
-            const current = prev.find(chat => chat.id === localId);
-            if (!current) return prev;
-            const updated = { ...current, id: serverId, title, updatedAt: Date.now() };
-            return [updated, ...prev.filter(chat => chat.id !== localId && chat.id !== serverId)];
-          });
-          setActiveId(serverId);
-        }
-      };
-      while (true) {
-        const { value: chunk, done } = await reader.read();
-        buffer += decoder.decode(chunk || new Uint8Array(), { stream: !done });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) handleEvent(line.trimEnd());
-        if (done) break;
-      }
-      if (buffer.trim()) handleEvent(buffer.trimEnd());
-      if (!completed) throw new Error(streamedText ? "The response ended before JustAI finished." : "JustAI did not return a response.");
+      const saveData = await saveResponse.json().catch(() => ({}));
+      if (!saveResponse.ok) throw new Error((saveData.detail || "The AI replied, but chat history could not be saved.") + " Your generated reply is still visible above.");
+      const serverId = saveData.chat_id;
+      setChats(prev => {
+        const current = prev.find(chat => chat.id === localId);
+        if (!current) return prev;
+        const updated = { ...current, id: serverId, title: saveData.title || title, updatedAt: Date.now() };
+        return [updated, ...prev.filter(chat => chat.id !== localId && chat.id !== serverId)];
+      });
+      setActiveId(serverId);
     } catch (e) {
-      setError(e.message || "Could not reach the JustAI server.");
+      setModelState(current => current === "loading" ? "error" : current);
+      setModelProgress(e.message || "Local AI could not start.");
+      setError(e.message || "Could not run the local AI model.");
     } finally {
       setBusy(false);
     }
@@ -310,7 +298,7 @@ export default function App() {
       </aside>
       <main className="main-panel">
         {studioOpen ? <TrainingStudio api={API} csrf={csrf} onBack={() => setStudioOpen(false)} /> : <>
-        <header className="topbar"><div className="top-left"><button className="icon-btn menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open menu"><Menu size={20} /></button><span className="mobile-brand">just<span>ai</span></span><span className="model-pill"><span className="status-dot" /> JustAI <span className="model-muted">· Assistant</span></span></div><button className="icon-btn desktop-new" onClick={newChat} aria-label="New chat"><MessageSquarePlus size={18} /></button></header>
+        <header className="topbar"><div className="top-left"><button className="icon-btn menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open menu"><Menu size={20} /></button><span className="mobile-brand">just<span>ai</span></span><span className="model-pill"><span className={"status-dot " + (modelState === "ready" ? "model-ready" : "")} /> JustAI <span className="model-muted">· {modelState === "ready" ? "On-device AI" : "Local AI"}</span></span></div><button className="icon-btn desktop-new" onClick={newChat} aria-label="New chat"><MessageSquarePlus size={18} /></button></header>
         <section className="conversation">
           {!active?.messages?.length ? <div className="welcome">
             <div className="welcome-orb"><Sparkles size={28} /></div><p className="eyebrow">YOUR IDEAS, IN MOTION</p><h1>What can I help<br /><em>you explore?</em></h1><p className="welcome-copy">Ask anything. Build something. Figure it out.<br />Let's make a little progress today.</p>
@@ -320,7 +308,7 @@ export default function App() {
             {busy && !active?.messages?.at(-1)?.content && <article className="message assistant"><div className="message-avatar"><Sparkles size={15} /></div><div className="message-body"><div className="message-name">JustAI</div><div className="typing"><i /><i /><i /></div></div></article>}<div ref={bottomRef} />
           </div>}
         </section>
-        <div className="composer-wrap">{error && <div className="error-note"><span>{error}</span><button onClick={() => setError("")}><X size={14} /></button></div>}<div className="composer"><textarea ref={composerRef} rows="1" value={input} onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 150) + "px"; }} onKeyDown={keyDown} placeholder="Message JustAI..." aria-label="Message JustAI" /><div className="composer-footer"><span className="composer-hint">JustAI can make mistakes. Check important information.</span><button className="send-btn" disabled={!input.trim() || busy} onClick={() => sendMessage()} aria-label="Send message"><ArrowUp size={19} /></button></div></div><div className="powered">MADE FOR CURIOUS MINDS <span>·</span> JUSTAI</div></div>
+        <div className="composer-wrap"><div className="local-model-status" role="status" aria-live="polite"><span>{modelState === "ready" ? "● On-device AI ready" : modelState === "loading" ? modelProgress : modelState === "error" ? modelProgress : "Private on-device AI · no API key required"}</span><button type="button" disabled={modelState === "loading" || modelState === "ready"} onClick={async () => { try { setModelState("loading"); setModelProgress("Checking WebGPU support…"); await getLocalAiEngine((progress) => setModelProgress(progress?.text || "Downloading local model…")); setModelState("ready"); setModelProgress("On-device AI ready"); } catch (e) { setModelState("error"); setModelProgress(e.message || "Could not load the local model."); setError(e.message || "Could not load the local model."); } }}>{modelState === "ready" ? "Ready" : modelState === "loading" ? "Loading…" : "Load local model"}</button></div>{error && <div className="error-note"><span>{error}</span><button onClick={() => setError("")}><X size={14} /></button></div>}<div className="composer"><textarea ref={composerRef} rows="1" value={input} onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 150) + "px"; }} onKeyDown={keyDown} placeholder="Message JustAI..." aria-label="Message JustAI" /><div className="composer-footer"><span className="composer-hint">JustAI can make mistakes. Check important information.</span><button className="send-btn" disabled={!input.trim() || busy} onClick={() => sendMessage()} aria-label="Send message"><ArrowUp size={19} /></button></div></div><div className="powered">MADE FOR CURIOUS MINDS <span>·</span> JUSTAI</div></div>
         </>}
       </main>
     </div>
