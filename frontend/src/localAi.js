@@ -1,5 +1,3 @@
-import { CreateWebWorkerMLCEngine } from "@mlc-ai/web-llm";
-
 export const LOCAL_MODEL_ID = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
 let enginePromise;
 
@@ -15,6 +13,7 @@ export async function checkLocalAiSupport() {
 export async function getLocalAiEngine(onProgress = () => {}) {
   await checkLocalAiSupport();
   if (!enginePromise) {
+    const { CreateWebWorkerMLCEngine } = await import("@mlc-ai/web-llm");
     const worker = new Worker(new URL("./local-ai.worker.js", import.meta.url), { type: "module" });
     enginePromise = CreateWebWorkerMLCEngine(worker, LOCAL_MODEL_ID, {
       initProgressCallback: (progress) => onProgress(progress),
