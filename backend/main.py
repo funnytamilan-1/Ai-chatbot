@@ -97,6 +97,7 @@ def set_session_cookies(response: Response, user_id: str):
     csrf_token = secrets.token_urlsafe(32)
     response.set_cookie(key=COOKIE_NAME, value=token_for(user_id), httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=TOKEN_HOURS * 60 * 60, path="/")
     response.set_cookie(key=CSRF_COOKIE_NAME, value=csrf_token, httponly=False, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=TOKEN_HOURS * 60 * 60, path="/")
+    return csrf_token
 
 
 async def require_csrf(
@@ -158,8 +159,8 @@ async def register(payload: AuthInput, response: Response):
         await store.users.insert_one(user)
     except DuplicateKeyError:
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
-    set_session_cookies(response, user["_id"])
-    return {"user": public_user(user)}
+    csrf_token = set_session_cookies(response, user["_id"])
+    return {"user": public_user(user), "csrf_token": csrf_token}
 
 
 @app.post("/api/auth/login")
@@ -179,8 +180,8 @@ async def logout(response: Response):
 
 
 @app.get("/api/auth/me")
-async def me(user=Depends(current_user)):
-    return {"user": public_user(user)}
+async def me(user=Depends(current_user), csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE_NAME)):
+    return {"user": public_user(user), "csrf_token": csrf_cookie}
 
 
 @app.get("/api/chats")
