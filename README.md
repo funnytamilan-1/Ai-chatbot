@@ -8,7 +8,7 @@ A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoD
 - Argon2 password hashing and signed JWT sessions in HttpOnly cookies
 - CSRF-token checks for state-changing requests; session and CSRF cookies are HttpOnly and tokens stay out of browser localStorage
 - MongoDB-backed conversations synced to the signed-in account
-- Open, delete, and automatically title chat history
+- Open, rename, delete, and automatically title chat history
 - Gemini-powered answers with recent conversation context
 - Tanglish/Tamil-aware assistant instructions
 - Markdown and code rendering, copy responses, and prompt starters
