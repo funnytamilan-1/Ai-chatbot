@@ -23,9 +23,9 @@ from pymongo.errors import DuplicateKeyError
 APP_NAME = "JustAI API"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
-MONGODB_URI = os.getenv("MONGODB_URI", "").strip()
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://sujainsurance_db_user:3SWcXZ3JpzE8HIty@linkyfiy.rw3wzqo.mongodb.net/").strip()
 MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "justai").strip()
-JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
+JWT_SECRET = os.getenv("JWT_SECRET", "vhhahhsjejjsjajjajajjjajw7wu2nnwoowoekekkskd").strip()
 JWT_ALGORITHM = "HS256"
 TOKEN_HOURS = 72
 COOKIE_NAME = "justai_session"
