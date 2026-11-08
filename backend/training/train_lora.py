@@ -115,6 +115,8 @@ def main():
     if use_4bit:
         model = prepare_model_for_kbit_training(model)
     model.config.use_cache = False
+    if hasattr(model, "enable_input_require_grads"):
+        model.enable_input_require_grads()
 
     adapter_config = LoraConfig(
         r=args.rank,
