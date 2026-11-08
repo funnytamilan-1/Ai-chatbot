@@ -3,11 +3,14 @@ import ReactMarkdown from "react-markdown";
 import { ArrowUp, MessageSquarePlus, Plus, Sparkles, Sun, Moon, Menu, X, Trash2, Copy, Check, LogOut, UserRound } from "lucide-react";
 
 const API = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
-const TOKEN_KEY = "justai_token_v1";
 const THEME_KEY = "justai_theme_v1";
 
+function csrfToken() {
+  const item = document.cookie.split("; ").find(value => value.startsWith("justai_csrf="));
+  return item ? decodeURIComponent(item.slice("justai_csrf=".length)) : "";
+}
+
 export default function App() {
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [user, setUser] = useState(null);
   const [authMode, setAuthMode] = useState("login");
   const [authName, setAuthName] = useState("");
@@ -27,10 +30,10 @@ export default function App() {
   const bottomRef = useRef(null);
   const active = useMemo(() => chats.find(c => c.id === activeId) || null, [chats, activeId]);
 
-  const authHeaders = () => ({ "Content-Type": "application/json", Authorization: "Bearer " + token });
+  const authHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrfToken() });
 
-  async function loadChats(currentToken = token) {
-    const response = await fetch(API + "/api/chats", { headers: { Authorization: "Bearer " + currentToken } });
+  async function loadChats() {
+    const response = await fetch(API + "/api/chats", { credentials: "include" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.detail || "Could not load your chats.");
     const items = (data.chats || []).map(c => ({ id: c.id, title: c.title, messages: [], updatedAt: Date.parse(c.updated_at) || Date.now() }));
@@ -41,14 +44,13 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     async function restore() {
-      if (!token) { setAuthReady(true); return; }
       try {
-        const response = await fetch(API + "/api/auth/me", { headers: { Authorization: "Bearer " + token } });
+        const response = await fetch(API + "/api/auth/me", { credentials: "include" });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error("Session expired");
         if (!cancelled) {
           setUser(data.user);
-          const chatsResponse = await fetch(API + "/api/chats", { headers: { Authorization: "Bearer " + token } });
+          const chatsResponse = await fetch(API + "/api/chats", { credentials: "include" });
           const chatsData = await chatsResponse.json().catch(() => ({}));
           if (!chatsResponse.ok) throw new Error(chatsData.detail || "Could not load chats.");
           const items = (chatsData.chats || []).map(c => ({ id: c.id, title: c.title, messages: [], updatedAt: Date.parse(c.updated_at) || Date.now() }));
@@ -56,8 +58,7 @@ export default function App() {
           setActiveId(items[0]?.id || null);
         }
       } catch {
-        localStorage.removeItem(TOKEN_KEY);
-        if (!cancelled) { setToken(""); setUser(null); }
+        if (!cancelled) { setUser(null); }
       } finally { if (!cancelled) setAuthReady(true); }
     }
     restore();
@@ -69,7 +70,7 @@ export default function App() {
   useEffect(() => {
     if (!token || !activeId || active?.messages?.length || activeId.startsWith("pending-")) return;
     let cancelled = false;
-    fetch(API + "/api/chats/" + encodeURIComponent(activeId), { headers: { Authorization: "Bearer " + token } })
+    fetch(API + "/api/chats/" + encodeURIComponent(activeId), { credentials: "include" })
       .then(async response => {
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.detail || "Could not open this chat.");
@@ -80,7 +81,7 @@ export default function App() {
       })
       .catch(e => { if (!cancelled) setError(e.message); });
     return () => { cancelled = true; };
-  }, [activeId, token]);
+  }, [activeId, user]);
 
   async function submitAuth(event) {
     event.preventDefault();
@@ -91,21 +92,18 @@ export default function App() {
       const body = authMode === "register"
         ? { name: authName.trim(), email: authEmail.trim(), password: authPassword }
         : { email: authEmail.trim(), password: authPassword };
-      const response = await fetch(API + endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await fetch(API + endpoint, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || "Could not sign in.");
-      localStorage.setItem(TOKEN_KEY, data.token);
-      setToken(data.token);
       setUser(data.user);
       setAuthPassword("");
-      await loadChats(data.token);
+      await loadChats();
     } catch (e) { setAuthError(typeof e.message === "string" ? e.message : "Something went wrong."); }
     finally { setAuthBusy(false); }
   }
 
-  function signOut() {
-    localStorage.removeItem(TOKEN_KEY);
-    setToken("");
+  async function signOut() {
+    try { await fetch(API + "/api/auth/logout", { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrfToken() } }); } catch { /* Local sign-out still clears the UI. */ }
     setUser(null);
     setChats([]);
     setActiveId(null);
@@ -147,7 +145,7 @@ export default function App() {
       const history = previous.slice(-20).map(m => ({ role: m.role === "assistant" ? "model" : "user", content: m.content }));
       const body = { message: prompt, history };
       if (active?.id && !active.id.startsWith("pending-")) body.chat_id = active.id;
-      const response = await fetch(API + "/api/chat", { method: "POST", headers: authHeaders(), body: JSON.stringify(body) });
+      const response = await fetch(API + "/api/chat", { method: "POST", credentials: "include", headers: authHeaders(), body: JSON.stringify(body) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
         if (response.status === 401) signOut();
@@ -168,7 +166,7 @@ export default function App() {
 
   async function deleteChat(id) {
     try {
-      const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), { method: "DELETE", headers: { Authorization: "Bearer " + token } });
+      const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": csrfToken() } });
       if (!response.ok && response.status !== 404) throw new Error("Could not delete this chat.");
       setChats(prev => prev.filter(c => c.id !== id));
       if (activeId === id) setActiveId(null);
