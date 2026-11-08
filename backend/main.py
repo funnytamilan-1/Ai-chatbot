@@ -96,7 +96,7 @@ async def current_user(session_cookie: str | None = Cookie(default=None, alias=C
 def set_session_cookies(response: Response, user_id: str):
     csrf_token = secrets.token_urlsafe(32)
     response.set_cookie(key=COOKIE_NAME, value=token_for(user_id), httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=TOKEN_HOURS * 60 * 60, path="/")
-    response.set_cookie(key=CSRF_COOKIE_NAME, value=csrf_token, httponly=False, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=TOKEN_HOURS * 60 * 60, path="/")
+    response.set_cookie(key=CSRF_COOKIE_NAME, value=csrf_token, httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=TOKEN_HOURS * 60 * 60, path="/")
     return csrf_token
 
 
@@ -175,7 +175,7 @@ async def login(payload: LoginInput, response: Response):
 @app.post("/api/auth/logout")
 async def logout(response: Response):
     response.delete_cookie(COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=True, samesite=COOKIE_SAMESITE)
-    response.delete_cookie(CSRF_COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=False, samesite=COOKIE_SAMESITE)
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=True, samesite=COOKIE_SAMESITE)
     return {"signed_out": True}
 
 
