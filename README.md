@@ -6,14 +6,14 @@ A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoD
 - Responsive chat interface with premium dark and light themes
 - Account registration and sign-in
 - Argon2 password hashing and signed JWT sessions in HttpOnly cookies
-- CSRF-token checks for state-changing requests; session and CSRF cookies are HttpOnly and tokens stay out of browser localStorage
+- CSRF-token checks for state-changing requests including logout; session and CSRF cookies are HttpOnly and tokens stay out of browser localStorage
 - MongoDB-backed conversations synced to the signed-in account
 - Open, rename, delete, and automatically title chat history
 - Gemini-powered answers with recent conversation context
-- Training Studio with private datasets, queued LoRA jobs, and an adapter registry
+- Training Studio with JSONL file import, private datasets, queued LoRA jobs, automatic job-status refresh, and an adapter registry
 - Server-sent-event streaming so assistant text appears as it is generated
 - Tanglish/Tamil-aware assistant instructions
-- Markdown and code rendering, copy responses, and prompt starters
+- Markdown and code rendering, copy responses, prompt starters, and an auto-growing mobile chat composer
 - Gemini and database credentials stay on the backend
 
 ## Project structure
