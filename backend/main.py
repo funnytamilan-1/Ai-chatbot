@@ -44,6 +44,9 @@ async def lifespan(app: FastAPI):
         await mongo_client.admin.command("ping")
         await db.users.create_index("email", unique=True)
         await db.chats.create_index([("user_id", 1), ("updated_at", -1)])
+        await db.training_datasets.create_index([("user_id", 1), ("created_at", -1)])
+        await db.training_jobs.create_index([("user_id", 1), ("created_at", -1)])
+        await db.training_models.create_index([("user_id", 1), ("created_at", -1)])
     yield
     if mongo_client:
         mongo_client.close()
@@ -134,6 +137,26 @@ class ChatTitle(BaseModel):
     title: str = Field(min_length=1, max_length=80)
 
 
+class TrainingMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class TrainingExample(BaseModel):
+    messages: list[TrainingMessage] = Field(min_length=2, max_length=12)
+
+
+class TrainingDatasetInput(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    examples: list[TrainingExample] = Field(min_length=2, max_length=2000)
+
+
+class TrainingJobInput(BaseModel):
+    dataset_id: str = Field(min_length=36, max_length=36)
+    epochs: int = Field(default=1, ge=1, le=3)
+    lora_rank: Literal[8, 16, 32] = 8
+
+
 def public_user(user):
     return {"id": user["_id"], "name": user["name"], "email": user["email"]}
 
@@ -182,6 +205,109 @@ async def logout(response: Response):
 @app.get("/api/auth/me")
 async def me(user=Depends(current_user), csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE_NAME)):
     return {"user": public_user(user), "csrf_token": csrf_cookie}
+
+
+@app.get("/api/training/overview")
+async def training_overview(user=Depends(current_user)):
+    store = database()
+    jobs = store.training_jobs
+    queued = await jobs.count_documents({"user_id": user["_id"], "status": "queued"})
+    running = await jobs.count_documents({"user_id": user["_id"], "status": "running"})
+    completed = await jobs.count_documents({"user_id": user["_id"], "status": "completed"})
+    datasets = await store.training_datasets.count_documents({"user_id": user["_id"]})
+    models = await store.training_models.count_documents({"user_id": user["_id"]})
+    return {
+        "base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+        "method": "LoRA fine-tuning",
+        "queued_jobs": queued,
+        "running_jobs": running,
+        "completed_jobs": completed,
+        "datasets": datasets,
+        "models": models,
+        "worker_required": True,
+    }
+
+
+@app.get("/api/training/datasets")
+async def list_training_datasets(user=Depends(current_user)):
+    cursor = database().training_datasets.find({"user_id": user["_id"]}, {"examples": 0}).sort("created_at", -1).limit(50)
+    items = []
+    async for item in cursor:
+        items.append({"id": item["_id"], "name": item["name"], "example_count": item["example_count"], "created_at": item["created_at"].isoformat()})
+    return {"datasets": items}
+
+
+@app.post("/api/training/datasets")
+async def create_training_dataset(payload: TrainingDatasetInput, user=Depends(current_user), _csrf=Depends(require_csrf)):
+    total_chars = 0
+    for example in payload.examples:
+        roles = [message.role for message in example.messages]
+        if "user" not in roles or roles[-1] != "assistant":
+            raise HTTPException(status_code=422, detail="Each example must include a user message and end with an assistant answer.")
+        total_chars += sum(len(message.content) for message in example.messages)
+    if total_chars > 1_000_000:
+        raise HTTPException(status_code=413, detail="Dataset text is too large. Keep each upload under 1 MB.")
+    now = datetime.now(timezone.utc)
+    item = {
+        "_id": str(uuid4()), "user_id": user["_id"], "name": payload.name.strip(),
+        "example_count": len(payload.examples), "examples": [example.model_dump() for example in payload.examples],
+        "created_at": now,
+    }
+    await database().training_datasets.insert_one(item)
+    return {"dataset": {"id": item["_id"], "name": item["name"], "example_count": item["example_count"], "created_at": now.isoformat()}}
+
+
+@app.get("/api/training/jobs")
+async def list_training_jobs(user=Depends(current_user)):
+    cursor = database().training_jobs.find(
+        {"user_id": user["_id"]},
+        {"_id": 1, "dataset_name": 1, "status": 1, "progress": 1, "epochs": 1, "lora_rank": 1, "error": 1, "created_at": 1, "model_id": 1},
+    ).sort("created_at", -1).limit(30)
+    items = []
+    async for item in cursor:
+        items.append({
+            "id": item["_id"], "dataset_name": item["dataset_name"], "status": item["status"],
+            "progress": item.get("progress", 0), "epochs": item["epochs"], "lora_rank": item["lora_rank"],
+            "error": item.get("error"), "model_id": item.get("model_id"), "created_at": item["created_at"].isoformat(),
+        })
+    return {"jobs": items}
+
+
+@app.post("/api/training/jobs")
+async def create_training_job(payload: TrainingJobInput, user=Depends(current_user), _csrf=Depends(require_csrf)):
+    store = database()
+    dataset = await store.training_datasets.find_one({"_id": payload.dataset_id, "user_id": user["_id"]})
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Training dataset not found.")
+    active = await store.training_jobs.find_one({"user_id": user["_id"], "status": {"$in": ["queued", "running"]}})
+    if active:
+        raise HTTPException(status_code=409, detail="You already have a training job queued or running.")
+    now = datetime.now(timezone.utc)
+    job = {
+        "_id": str(uuid4()), "user_id": user["_id"], "dataset_id": dataset["_id"],
+        "dataset_name": dataset["name"], "base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+        "method": "LoRA", "epochs": payload.epochs, "lora_rank": payload.lora_rank,
+        "status": "queued", "progress": 0, "created_at": now, "updated_at": now,
+    }
+    await store.training_jobs.insert_one(job)
+    return {"job": {"id": job["_id"], "status": job["status"], "dataset_name": job["dataset_name"]}}
+
+
+@app.get("/api/training/models")
+async def list_training_models(user=Depends(current_user)):
+    cursor = database().training_models.find(
+        {"user_id": user["_id"]},
+        {"_id": 1, "name": 1, "base_model": 1, "method": 1, "dataset_name": 1, "artifact_path": 1, "created_at": 1, "job_id": 1},
+    ).sort("created_at", -1).limit(30)
+    items = []
+    async for item in cursor:
+        items.append({
+            "id": item["_id"], "name": item["name"], "base_model": item["base_model"],
+            "method": item["method"], "dataset_name": item["dataset_name"],
+            "artifact_path": item["artifact_path"], "job_id": item["job_id"],
+            "created_at": item["created_at"].isoformat(),
+        })
+    return {"models": items}
 
 
 @app.get("/api/chats")
