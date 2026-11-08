@@ -1,73 +1,61 @@
 # JustAI
 
-A mobile-first AI assistant web app built with React, Vite, FastAPI, and Google Gemini.
+A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoDB Atlas, and Google Gemini.
 
-## Included in this first release
-
+## Features in this build
 - Responsive chat interface with premium dark and light themes
-- Multiple conversations saved in the browser on the current device
-- Recent conversation context sent to the AI model
-- Markdown and code rendering
-- Copy responses, delete chats, and prompt starters
-- FastAPI backend keeps the Gemini API key off the frontend
-- Health endpoint and clear provider error handling
+- Account registration and sign-in
+- Password hashing with Argon2 and signed JWT sessions
+- MongoDB-backed conversations synced to the signed-in account
+- Open, delete, and automatically title chat history
+- Gemini-powered answers with recent conversation context
+- Tanglish/Tamil-aware assistant instructions
+- Markdown and code rendering, copy responses, and prompt starters
+- Gemini and database credentials stay on the backend
 
 ## Project structure
-
 - `frontend/` — React + Vite application
-- `backend/` — FastAPI AI service
+- `backend/` — FastAPI API, authentication, MongoDB persistence, Gemini integration
 
-## Run locally
-
-### Backend
-
-1. Use Python 3.10 or newer.
+## Backend setup
+1. Use Python 3.11 or newer.
 2. Open a terminal in `backend/`.
-3. Install packages: `pip install -r requirements.txt`
-4. Copy `.env.example` to `.env` and add your Gemini API key.
-5. Start the API: `uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+3. Install: `pip install -r requirements.txt`
+4. Copy `.env.example` to `.env`.
+5. Set `GEMINI_API_KEY`, `MONGODB_URI`, `MONGODB_DATABASE`, `JWT_SECRET` (random string, 32+ characters), and `CORS_ORIGINS`.
+6. Run: `uvicorn main:app --reload --host 0.0.0.0 --port 8000`
 
 API health: `http://localhost:8000/health`  
 API docs: `http://localhost:8000/docs`
 
-### Frontend
+## Frontend setup
+1. Use Node.js 20 or newer.
+2. Run `cd frontend && npm install`.
+3. Copy `.env.example` to `.env` and set `VITE_API_BASE_URL` to your backend URL.
+4. Run `npm run dev`.
+5. Create a production build with `npm run build`.
 
-1. Open another terminal in `frontend/`.
-2. Install packages: `npm install`
-3. Copy `.env.example` to `.env` if the backend is not running at `http://localhost:8000`.
-4. Start Vite: `npm run dev`
-
-## Environment variables
-
-### Backend
-
-- `GEMINI_API_KEY` — required; keep this secret and configure it only on the backend host.
-- `GEMINI_MODEL` — defaults to `gemini-2.5-flash`.
-- `FRONTEND_URL` — frontend origin allowed by CORS.
-
-### Frontend
-
-- `VITE_API_BASE_URL` — backend base URL. This is public configuration, not a secret.
-
-## Deploy
-
+## Deployment
 ### Backend on Render
-
-- Create a Python web service from this repository.
 - Root directory: `backend`
 - Build command: `pip install -r requirements.txt`
 - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-- Add `GEMINI_API_KEY`, `GEMINI_MODEL`, and `FRONTEND_URL` in the service environment.
+- Add `GEMINI_API_KEY`, `GEMINI_MODEL`, `MONGODB_URI`, `MONGODB_DATABASE`, `JWT_SECRET`, and `CORS_ORIGINS` in Render environment settings.
 
 ### Frontend on Vercel
-
-- Import this repository.
 - Root directory: `frontend`
 - Framework preset: Vite
 - Build command: `npm run build`
 - Output directory: `dist`
-- Add `VITE_API_BASE_URL` with the deployed backend URL before building.
+- Set `VITE_API_BASE_URL` to the deployed backend URL.
 
-## Current limitations
+Set `CORS_ORIGINS` to the exact deployed frontend origin. Never put Gemini, MongoDB, or JWT secrets in `VITE_*` variables or commit a real `.env` file.
 
-This is a functional first foundation, not a copy of OpenAI's proprietary ChatGPT service. Conversation history is stored in browser local storage on that device. Authentication, cloud-synced history, image/document understanding, voice, and token streaming are not implemented yet and should be added as separate modules. Never put provider API keys in frontend code or commit a real `.env` file.
+## API routes
+- `GET /`, `GET /health`
+- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- `GET /api/chats`, `GET /api/chats/{id}`, `PATCH /api/chats/{id}`, `DELETE /api/chats/{id}`
+- `POST /api/chat`
+
+## Current scope
+This is an original AI assistant using the Gemini API, not a copy of OpenAI's proprietary ChatGPT service. Image/document input, voice, streaming responses, password reset, and account deletion are not included in this increment.
