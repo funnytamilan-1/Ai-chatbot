@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -33,17 +35,15 @@ def test_chat_input_enforces_message_limits():
         main.ChatRequest(message="x" * 12001)
 
 
-@pytest.mark.asyncio
-async def test_csrf_check_accepts_matching_token():
-    await main.require_csrf(csrf_cookie="csrf-value", csrf_header="csrf-value")
+def test_csrf_check_accepts_matching_token():
+    asyncio.run(main.require_csrf(csrf_cookie="csrf-value", csrf_header="csrf-value"))
 
 
-@pytest.mark.asyncio
-async def test_csrf_check_rejects_missing_or_mismatched_token():
+def test_csrf_check_rejects_missing_or_mismatched_token():
     with pytest.raises(HTTPException) as error:
-        await main.require_csrf(csrf_cookie="csrf-value", csrf_header="different")
+        asyncio.run(main.require_csrf(csrf_cookie="csrf-value", csrf_header="different"))
     assert error.value.status_code == 403
 
     with pytest.raises(HTTPException) as missing:
-        await main.require_csrf(csrf_cookie="csrf-value", csrf_header=None)
+        asyncio.run(main.require_csrf(csrf_cookie="csrf-value", csrf_header=None))
     assert missing.value.status_code == 403
