@@ -6,7 +6,7 @@ A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoD
 - Responsive chat interface with premium dark and light themes
 - Account registration and sign-in
 - Argon2 password hashing and signed JWT sessions in HttpOnly cookies
-- CSRF-token checks for state-changing requests; session tokens are not stored in browser localStorage
+- CSRF-token checks for state-changing requests; session and CSRF cookies are HttpOnly and tokens stay out of browser localStorage
 - MongoDB-backed conversations synced to the signed-in account
 - Open, delete, and automatically title chat history
 - Gemini-powered answers with recent conversation context
@@ -51,7 +51,7 @@ API docs: `http://localhost:8000/docs`
 - Output directory: `dist`
 - Set `VITE_API_BASE_URL` to the deployed backend URL.
 
-Set `CORS_ORIGINS` to the exact deployed frontend origin. The frontend sends credentialed requests and reads only the separate CSRF cookie; the session JWT is HttpOnly. Never put Gemini, MongoDB, or JWT secrets in `VITE_*` variables or commit a real `.env` file.
+Set `CORS_ORIGINS` to the exact deployed frontend origin. The frontend sends credentialed requests and receives a CSRF token in the auth response; both session and CSRF cookies are HttpOnly. Never put Gemini, MongoDB, or JWT secrets in `VITE_*` variables or commit a real `.env` file.
 
 ## API routes
 - `GET /`, `GET /health`
