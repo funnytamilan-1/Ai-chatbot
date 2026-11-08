@@ -5,13 +5,9 @@ import { ArrowUp, MessageSquarePlus, Plus, Sparkles, Sun, Moon, Menu, X, Trash2,
 const API = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const THEME_KEY = "justai_theme_v1";
 
-function csrfToken() {
-  const item = document.cookie.split("; ").find(value => value.startsWith("justai_csrf="));
-  return item ? decodeURIComponent(item.slice("justai_csrf=".length)) : "";
-}
-
 export default function App() {
   const [user, setUser] = useState(null);
+  const [csrf, setCsrf] = useState("");
   const [authMode, setAuthMode] = useState("login");
   const [authName, setAuthName] = useState("");
   const [authEmail, setAuthEmail] = useState("");
@@ -30,7 +26,7 @@ export default function App() {
   const bottomRef = useRef(null);
   const active = useMemo(() => chats.find(c => c.id === activeId) || null, [chats, activeId]);
 
-  const authHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrfToken() });
+  const authHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrf });
 
   async function loadChats() {
     const response = await fetch(API + "/api/chats", { credentials: "include" });
@@ -50,6 +46,7 @@ export default function App() {
         if (!response.ok) throw new Error("Session expired");
         if (!cancelled) {
           setUser(data.user);
+          setCsrf(data.csrf_token || "");
           const chatsResponse = await fetch(API + "/api/chats", { credentials: "include" });
           const chatsData = await chatsResponse.json().catch(() => ({}));
           if (!chatsResponse.ok) throw new Error(chatsData.detail || "Could not load chats.");
@@ -96,6 +93,7 @@ export default function App() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || "Could not sign in.");
       setUser(data.user);
+      setCsrf(data.csrf_token || "");
       setAuthPassword("");
       await loadChats();
     } catch (e) { setAuthError(typeof e.message === "string" ? e.message : "Something went wrong."); }
@@ -103,8 +101,9 @@ export default function App() {
   }
 
   async function signOut() {
-    try { await fetch(API + "/api/auth/logout", { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrfToken() } }); } catch { /* Local sign-out still clears the UI. */ }
+    try { await fetch(API + "/api/auth/logout", { method: "POST", credentials: "include", headers: { "X-CSRF-Token": csrf } }); } catch { /* Local sign-out still clears the UI. */ }
     setUser(null);
+    setCsrf("");
     setChats([]);
     setActiveId(null);
     setInput("");
@@ -166,7 +165,7 @@ export default function App() {
 
   async function deleteChat(id) {
     try {
-      const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": csrfToken() } });
+      const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": csrf } });
       if (!response.ok && response.status !== 404) throw new Error("Could not delete this chat.");
       setChats(prev => prev.filter(c => c.id !== id));
       if (activeId === id) setActiveId(null);
