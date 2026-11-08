@@ -16,7 +16,7 @@ from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from pwdlib import PasswordHash
 from pymongo.errors import DuplicateKeyError
 
@@ -146,6 +146,15 @@ class TrainingMessage(BaseModel):
 
 class TrainingExample(BaseModel):
     messages: list[TrainingMessage] = Field(min_length=2, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_conversation(self):
+        roles = [message.role for message in self.messages]
+        if "user" not in roles:
+            raise ValueError("Each training example must include a user message.")
+        if roles[-1] != "assistant":
+            raise ValueError("Each training example must end with an assistant answer.")
+        return self
 
 
 class TrainingDatasetInput(BaseModel):
