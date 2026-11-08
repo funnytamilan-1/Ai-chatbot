@@ -1,4 +1,5 @@
 import os
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import secrets
@@ -12,6 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 import jwt
 from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
@@ -341,6 +343,93 @@ async def rename_chat(chat_id: str, payload: ChatTitle, user=Depends(current_use
     if not result.matched_count:
         raise HTTPException(status_code=404, detail="Chat not found.")
     return {"updated": True}
+
+
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(payload: ChatRequest, user=Depends(current_user), _csrf=Depends(require_csrf)):
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="AI is not configured. Add GEMINI_API_KEY to backend environment variables.")
+    store = database()
+    chat_id = payload.chat_id or str(uuid4())
+    record = await store.chats.find_one({"_id": chat_id, "user_id": user["_id"]})
+    if payload.chat_id and not record:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+
+    contents = []
+    for item in payload.history[-20:]:
+        text = item.content.strip()
+        if text:
+            contents.append({"role": item.role, "parts": [{"text": text}]})
+    contents.append({"role": "user", "parts": [{"text": payload.message.strip()}]})
+    system_prompt = (
+        "You are JustAI, a helpful, accurate, friendly AI assistant. Answer in the language used by the user. "
+        "Understand Tamil written in Latin letters (Tanglish) and reply naturally in the same style when appropriate. "
+        "Explain technical topics clearly, help with coding, and use Markdown when useful. "
+        "Never claim to have performed actions you did not perform. If unsure, say so."
+    )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:streamGenerateContent?alt=sse"
+    body = {"systemInstruction": {"parts": [{"text": system_prompt}]}, "contents": contents, "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096}}
+
+    async def events():
+        chunks = []
+        try:
+            timeout = httpx.Timeout(90.0, connect=15.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, headers={"x-goog-api-key": GEMINI_API_KEY}, json=body) as upstream:
+                    if upstream.status_code >= 400:
+                        raw = await upstream.aread()
+                        try:
+                            detail = json.loads(raw).get("error", {}).get("message", "AI provider request failed")
+                        except (ValueError, TypeError):
+                            detail = "AI provider request failed"
+                        yield "data: " + json.dumps({"error": detail}) + "\n\n"
+                        return
+                    async for line in upstream.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        try:
+                            packet = json.loads(raw)
+                        except ValueError:
+                            continue
+                        candidates = packet.get("candidates", [])
+                        parts = candidates[0].get("content", {}).get("parts", []) if candidates else []
+                        piece = "".join(part.get("text", "") for part in parts if part.get("text"))
+                        if piece:
+                            chunks.append(piece)
+                            yield "data: " + json.dumps({"text": piece}, ensure_ascii=False) + "\n\n"
+            reply = "".join(chunks)
+            if not reply.strip():
+                yield "data: " + json.dumps({"error": "The AI provider returned an empty response."}) + "\n\n"
+                return
+            now = datetime.now(timezone.utc)
+            messages = (record or {}).get("messages", [])
+            messages.extend([
+                {"role": "user", "content": payload.message.strip()},
+                {"role": "model", "content": reply},
+            ])
+            title = (record or {}).get("title") or payload.message.strip()[:48] or "New chat"
+            await store.chats.update_one(
+                {"_id": chat_id, "user_id": user["_id"]},
+                {"$set": {"title": title, "messages": messages[-100:], "updated_at": now},
+                 "$setOnInsert": {"created_at": now}},
+                upsert=True,
+            )
+            yield "data: " + json.dumps({"done": True, "chat_id": chat_id, "model": GEMINI_MODEL}) + "\n\n"
+        except httpx.TimeoutException:
+            yield "data: " + json.dumps({"error": "The AI provider took too long to respond. Try again."}) + "\n\n"
+        except httpx.RequestError:
+            yield "data: " + json.dumps({"error": "Could not connect to the AI provider."}) + "\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/chat")
