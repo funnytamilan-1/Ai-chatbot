@@ -66,6 +66,21 @@ export default function App() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [active?.messages, busy]);
   useEffect(() => { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); }, [light]);
+  useEffect(() => {
+    if (!token || !activeId || active?.messages?.length || activeId.startsWith("pending-")) return;
+    let cancelled = false;
+    fetch(API + "/api/chats/" + encodeURIComponent(activeId), { headers: { Authorization: "Bearer " + token } })
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Could not open this chat.");
+        return data;
+      })
+      .then(data => {
+        if (!cancelled) setChats(prev => prev.map(c => c.id === activeId ? { ...c, title: data.title, messages: (data.messages || []).map((m, i) => ({ id: activeId + "-" + i, role: m.role === "model" ? "assistant" : "user", content: m.content })) } : c));
+      })
+      .catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [activeId, token]);
 
   async function submitAuth(event) {
     event.preventDefault();
@@ -106,17 +121,10 @@ export default function App() {
     setSidebarOpen(false);
   }
 
-  async function openChat(id) {
+  function openChat(id) {
     setActiveId(id);
     setSidebarOpen(false);
-    const selected = chats.find(c => c.id === id);
-    if (selected?.messages?.length) return;
-    try {
-      const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), { headers: { Authorization: "Bearer " + token } });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || "Could not open this chat.");
-      setChats(prev => prev.map(c => c.id === id ? { ...c, title: data.title, messages: (data.messages || []).map((m, i) => ({ id: id + "-" + i, role: m.role === "model" ? "assistant" : "user", content: m.content })) } : c));
-    } catch (e) { setError(e.message); }
+    setError("");
   }
 
   async function sendMessage(value) {
