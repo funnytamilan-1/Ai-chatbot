@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import secrets
@@ -23,9 +24,9 @@ from pymongo.errors import DuplicateKeyError
 APP_NAME = "JustAI API"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb+srv://sujainsurance_db_user:3SWcXZ3JpzE8HIty@linkyfiy.rw3wzqo.mongodb.net/").strip()
+MONGODB_URI = os.getenv("MONGODB_URI", "").strip()
 MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "justai").strip()
-JWT_SECRET = os.getenv("JustAI_JWT_2026_8fK2mQ9xL4vR7pN3zW6cB1hT5yD0aE8uG2sF9jX4").strip()
+JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_ALGORITHM = "HS256"
 TOKEN_HOURS = 72
 COOKIE_NAME = "justai_session"
@@ -40,18 +41,37 @@ db = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global mongo_client, db
+    client = None
     if MONGODB_URI:
-        mongo_client = AsyncIOMotorClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
-        db = mongo_client[MONGODB_DATABASE]
-        await mongo_client.admin.command("ping")
-        await db.users.create_index("email", unique=True)
-        await db.chats.create_index([("user_id", 1), ("updated_at", -1)])
-        await db.training_datasets.create_index([("user_id", 1), ("created_at", -1)])
-        await db.training_jobs.create_index([("user_id", 1), ("created_at", -1)])
-        await db.training_models.create_index([("user_id", 1), ("created_at", -1)])
-    yield
-    if mongo_client:
-        mongo_client.close()
+        try:
+            client = AsyncIOMotorClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+            candidate_db = client[MONGODB_DATABASE]
+            await client.admin.command("ping")
+            await candidate_db.users.create_index("email", unique=True)
+            await candidate_db.chats.create_index([("user_id", 1), ("updated_at", -1)])
+            await candidate_db.training_datasets.create_index([("user_id", 1), ("created_at", -1)])
+            await candidate_db.training_jobs.create_index([("user_id", 1), ("created_at", -1)])
+            await candidate_db.training_models.create_index([("user_id", 1), ("created_at", -1)])
+            mongo_client = client
+            db = candidate_db
+        except Exception as exc:
+            logging.warning(
+                "MongoDB connection unavailable during startup (%s). "
+                "Database-backed endpoints will return HTTP 503 until configuration is fixed.",
+                type(exc).__name__,
+            )
+            if client is not None:
+                client.close()
+            mongo_client = None
+            db = None
+    else:
+        logging.warning("MONGODB_URI is not configured. Database-backed endpoints will return HTTP 503.")
+
+    try:
+        yield
+    finally:
+        if mongo_client:
+            mongo_client.close()
 
 
 app = FastAPI(title=APP_NAME, version="2.0.0", lifespan=lifespan)
@@ -67,7 +87,10 @@ app.add_middleware(
 
 def database():
     if db is None:
-        raise HTTPException(status_code=503, detail="Database is not configured. Add MONGODB_URI to backend environment variables.")
+        raise HTTPException(
+            status_code=503,
+            detail="Database is unavailable. Check MONGODB_URI and MongoDB Atlas network access.",
+        )
     return db
 
 
@@ -185,7 +208,15 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "ai_configured": bool(GEMINI_API_KEY), "database_configured": bool(MONGODB_URI), "model": GEMINI_MODEL}
+    database_connected = db is not None
+    return {
+        "status": "ok" if database_connected else "degraded",
+        "ai_configured": bool(GEMINI_API_KEY),
+        "auth_configured": len(JWT_SECRET) >= 32,
+        "database_configured": bool(MONGODB_URI),
+        "database_connected": database_connected,
+        "model": GEMINI_MODEL,
+    }
 
 
 @app.post("/api/auth/register")
