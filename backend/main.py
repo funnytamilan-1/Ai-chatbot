@@ -1,6 +1,8 @@
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+import secrets
+import hmac
 from typing import Literal
 from uuid import uuid4
 
@@ -9,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 import jwt
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Cookie, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
@@ -23,6 +25,10 @@ MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "justai").strip()
 JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
 JWT_ALGORITHM = "HS256"
 TOKEN_HOURS = 72
+COOKIE_NAME = "justai_session"
+CSRF_COOKIE_NAME = "justai_csrf"
+COOKIE_SECURE = os.getenv("APP_ENV", "development").lower() == "production"
+COOKIE_SAMESITE = "none" if COOKIE_SECURE else "lax"
 password_hash = PasswordHash.recommended()
 mongo_client = None
 db = None
@@ -66,13 +72,16 @@ def token_for(user_id: str):
     return jwt.encode({"sub": user_id, "iat": now, "exp": now + timedelta(hours=TOKEN_HOURS)}, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-async def current_user(authorization: str | None = Header(default=None)):
-    if not authorization or not authorization.startswith("Bearer "):
+async def current_user(session_cookie: str | None = Cookie(default=None, alias=COOKIE_NAME), authorization: str | None = Header(default=None)):
+    token = session_cookie
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    if not token:
         raise HTTPException(status_code=401, detail="Please sign in to continue.")
     if len(JWT_SECRET) < 32:
         raise HTTPException(status_code=503, detail="Authentication is not configured.")
     try:
-        payload = jwt.decode(authorization[7:], JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         user_id = payload.get("sub")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Your session expired. Please sign in again.")
@@ -80,6 +89,21 @@ async def current_user(authorization: str | None = Header(default=None)):
     if not user:
         raise HTTPException(status_code=401, detail="Account not found. Please sign in again.")
     return user
+
+
+
+def set_session_cookies(response: Response, user_id: str):
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(key=COOKIE_NAME, value=token_for(user_id), httponly=True, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=TOKEN_HOURS * 60 * 60, path="/")
+    response.set_cookie(key=CSRF_COOKIE_NAME, value=csrf_token, httponly=False, secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=TOKEN_HOURS * 60 * 60, path="/")
+
+
+async def require_csrf(
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE_NAME),
+    csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+):
+    if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+        raise HTTPException(status_code=403, detail="Your request could not be verified. Refresh and try again.")
 
 
 class AuthInput(BaseModel):
@@ -123,23 +147,31 @@ async def health():
 
 
 @app.post("/api/auth/register")
-async def register(payload: AuthInput):
+async def register(payload: AuthInput, response: Response):
     store = database()
     email = str(payload.email).lower().strip()
     if await store.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
     user = {"_id": str(uuid4()), "name": payload.name.strip(), "email": email, "password_hash": password_hash.hash(payload.password), "created_at": datetime.now(timezone.utc)}
-    token = token_for(user["_id"])
+    set_session_cookies(response, user["_id"])
     await store.users.insert_one(user)
-    return {"token": token, "user": public_user(user)}
+    return {"user": public_user(user)}
 
 
 @app.post("/api/auth/login")
-async def login(payload: LoginInput):
+async def login(payload: LoginInput, response: Response):
     user = await database().users.find_one({"email": str(payload.email).lower().strip()})
     if not user or not password_hash.verify(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
-    return {"token": token_for(user["_id"]), "user": public_user(user)}
+    set_session_cookies(response, user["_id"])
+    return {"user": public_user(user)}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    response.delete_cookie(COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=True, samesite=COOKIE_SAMESITE)
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=False, samesite=COOKIE_SAMESITE)
+    return {"signed_out": True}
 
 
 @app.get("/api/auth/me")
@@ -165,7 +197,7 @@ async def get_chat(chat_id: str, user=Depends(current_user)):
 
 
 @app.delete("/api/chats/{chat_id}")
-async def delete_chat(chat_id: str, user=Depends(current_user)):
+async def delete_chat(chat_id: str, user=Depends(current_user), _csrf=Depends(require_csrf)):
     result = await database().chats.delete_one({"_id": chat_id, "user_id": user["_id"]})
     if not result.deleted_count:
         raise HTTPException(status_code=404, detail="Chat not found.")
@@ -173,7 +205,7 @@ async def delete_chat(chat_id: str, user=Depends(current_user)):
 
 
 @app.patch("/api/chats/{chat_id}")
-async def rename_chat(chat_id: str, payload: ChatTitle, user=Depends(current_user)):
+async def rename_chat(chat_id: str, payload: ChatTitle, user=Depends(current_user), _csrf=Depends(require_csrf)):
     result = await database().chats.update_one({"_id": chat_id, "user_id": user["_id"]}, {"$set": {"title": payload.title.strip(), "updated_at": datetime.now(timezone.utc)}})
     if not result.matched_count:
         raise HTTPException(status_code=404, detail="Chat not found.")
@@ -181,7 +213,7 @@ async def rename_chat(chat_id: str, payload: ChatTitle, user=Depends(current_use
 
 
 @app.post("/api/chat")
-async def chat(payload: ChatRequest, user=Depends(current_user)):
+async def chat(payload: ChatRequest, user=Depends(current_user), _csrf=Depends(require_csrf)):
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="AI is not configured. Add GEMINI_API_KEY to backend environment variables.")
     store = database()
