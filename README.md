@@ -10,6 +10,7 @@ A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoD
 - MongoDB-backed conversations synced to the signed-in account
 - Open, rename, delete, and automatically title chat history
 - Gemini-powered answers with recent conversation context
+- Training Studio with private datasets, queued LoRA jobs, and an adapter registry
 - Server-sent-event streaming so assistant text appears as it is generated
 - Tanglish/Tamil-aware assistant instructions
 - Markdown and code rendering, copy responses, and prompt starters
@@ -17,7 +18,8 @@ A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoD
 
 ## Project structure
 - `frontend/` — React + Vite application
-- `backend/` — FastAPI API, authentication, MongoDB persistence, Gemini integration
+- `backend/` — FastAPI API, authentication, MongoDB persistence, Gemini integration, and optional model-training worker
+- `frontend/src/TrainingStudio.jsx` — dataset manager and fine-tuning dashboard
 
 ## Backend setup
 1. Use Python 3.11 or newer.
@@ -54,10 +56,20 @@ API docs: `http://localhost:8000/docs`
 
 Set `CORS_ORIGINS` to the exact deployed frontend origin. The frontend sends credentialed requests and receives a CSRF token in the auth response; both session and CSRF cookies are HttpOnly. Never put Gemini, MongoDB, or JWT secrets in `VITE_*` variables or commit a real `.env` file.
 
+## Own model training (optional)
+
+JustAI includes a Training Studio for creating private chat datasets, queuing fine-tuning jobs, and tracking saved LoRA adapters. The first training target is the small open-weight `Qwen/Qwen2.5-0.5B-Instruct` model. This is fine-tuning, not training a foundation model from random initialization.
+
+The Render API only validates and queues jobs. Actual model training must run in a separate worker environment with sufficient RAM and preferably a CUDA GPU. Follow [backend/training/README.md](backend/training/README.md), install `backend/requirements-training.txt` in that worker, configure the same MongoDB database plus a persistent `MODEL_OUTPUT_DIR`, and start `python -m training.worker` from `backend/`.
+
+The first release saves LoRA adapters in the model registry. It does not yet activate a trained adapter in the live Gemini chat route. Model inference/activation and persistent artifact hosting are later steps. Do not upload private, confidential, or unlicensed data.
+
 ## API routes
 - `GET /`, `GET /health`
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
 - `GET /api/chats`, `GET /api/chats/{id}`, `PATCH /api/chats/{id}`, `DELETE /api/chats/{id}`
+- `GET /api/training/overview`, `GET /api/training/datasets`, `POST /api/training/datasets`
+- `GET /api/training/jobs`, `POST /api/training/jobs`, `GET /api/training/models`
 - `POST /api/chat` (complete response)
 - `POST /api/chat/stream` (server-sent-event streaming)
 
