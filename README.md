@@ -55,7 +55,7 @@ Set `CORS_ORIGINS` to the exact deployed frontend origin. The frontend sends cre
 
 ## API routes
 - `GET /`, `GET /health`
-- `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`
+- `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
 - `GET /api/chats`, `GET /api/chats/{id}`, `PATCH /api/chats/{id}`, `DELETE /api/chats/{id}`
 - `POST /api/chat`
 
