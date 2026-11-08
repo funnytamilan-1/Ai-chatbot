@@ -139,6 +139,12 @@ class ChatTitle(BaseModel):
     title: str = Field(min_length=1, max_length=80)
 
 
+class LocalChatSaveInput(BaseModel):
+    message: str = Field(min_length=1, max_length=12000)
+    reply: str = Field(min_length=1, max_length=30000)
+    chat_id: str | None = None
+
+
 class TrainingMessage(BaseModel):
     role: Literal["system", "user", "assistant"]
     content: str = Field(min_length=1, max_length=8000)
@@ -354,6 +360,31 @@ async def rename_chat(chat_id: str, payload: ChatTitle, user=Depends(current_use
     return {"updated": True}
 
 
+
+
+@app.post("/api/chat/local/save")
+async def save_local_chat(payload: LocalChatSaveInput, user=Depends(current_user), _csrf=Depends(require_csrf)):
+    """Persist a reply generated privately in the user's browser with WebLLM."""
+    store = database()
+    chat_id = payload.chat_id or str(uuid4())
+    record = await store.chats.find_one({"_id": chat_id, "user_id": user["_id"]})
+    if payload.chat_id and not record:
+        raise HTTPException(status_code=404, detail="Chat not found.")
+    now = datetime.now(timezone.utc)
+    title = (record or {}).get("title") or payload.message.strip()[:48] or "New chat"
+    await store.chats.update_one(
+        {"_id": chat_id, "user_id": user["_id"]},
+        {
+            "$set": {"title": title, "updated_at": now},
+            "$push": {"messages": {"$each": [
+                {"role": "user", "content": payload.message.strip()},
+                {"role": "model", "content": payload.reply.strip()},
+            ], "$slice": -100}},
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
+    return {"saved": True, "chat_id": chat_id, "title": title, "model": "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", "provider": "browser-local"}
 
 
 @app.post("/api/chat/stream")
