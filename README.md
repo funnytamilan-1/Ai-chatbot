@@ -9,7 +9,8 @@ A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoD
 - CSRF-token checks for state-changing requests including logout; session and CSRF cookies are HttpOnly and tokens stay out of browser localStorage
 - MongoDB-backed conversations synced to the signed-in account
 - Open, rename, delete, and automatically title chat history
-- Gemini-powered answers with recent conversation context
+- Real on-device AI chat using Qwen2.5 0.5B through WebLLM in WebGPU-capable browsers (no Gemini/OpenAI API key required)
+- Optional Gemini server provider remains available when a backend Gemini key is configured
 - Training Studio with JSONL file import, private datasets, queued LoRA jobs, automatic job-status refresh, and an adapter registry
 - Server-sent-event streaming so assistant text appears as it is generated
 - Tanglish/Tamil-aware assistant instructions
@@ -44,7 +45,7 @@ API docs: `http://localhost:8000/docs`
 - Root directory: `backend`
 - Build command: `pip install -r requirements.txt`
 - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-- Add `GEMINI_API_KEY`, `GEMINI_MODEL`, `MONGODB_URI`, `MONGODB_DATABASE`, `JWT_SECRET`, `APP_ENV=production`, and `CORS_ORIGINS` in Render environment settings.
+- Add `MONGODB_URI`, `MONGODB_DATABASE`, `JWT_SECRET`, `APP_ENV=production`, and `CORS_ORIGINS` in Render environment settings. `GEMINI_API_KEY` is optional and only needed if you later use the Gemini server route.
 - `APP_ENV=production` enables `Secure` + `SameSite=None` session cookies for the cross-site Vercel frontend and Render API. Use HTTPS and set `CORS_ORIGINS` to the exact Vercel origin (no wildcard).
 
 ### Frontend on Vercel
@@ -62,7 +63,7 @@ JustAI includes a Training Studio for creating private chat datasets, queuing fi
 
 The Render API only validates and queues jobs. Actual model training must run in a separate worker environment with sufficient RAM and preferably a CUDA GPU. Follow [backend/training/README.md](backend/training/README.md), install `backend/requirements-training.txt` in that worker, configure the same MongoDB database plus a persistent `MODEL_OUTPUT_DIR`, and start `python -m training.worker` from `backend/`.
 
-The first release saves LoRA adapters in the model registry. It does not yet activate a trained adapter in the live Gemini chat route. Model inference/activation and persistent artifact hosting are later steps. Do not upload private, confidential, or unlicensed data.
+The first release saves LoRA adapters in the model registry. It does not yet activate a trained adapter in live chat. Browser-local chat currently uses the base Qwen2.5 0.5B model; trained adapter inference/activation and persistent artifact hosting remain later steps. Do not upload private, confidential, or unlicensed data.
 
 ## API routes
 - `GET /`, `GET /health`
@@ -71,7 +72,20 @@ The first release saves LoRA adapters in the model registry. It does not yet act
 - `GET /api/training/overview`, `GET /api/training/datasets`, `POST /api/training/datasets`
 - `GET /api/training/jobs`, `POST /api/training/jobs`, `GET /api/training/models`
 - `POST /api/chat` (complete response)
-- `POST /api/chat/stream` (server-sent-event streaming)
+- `POST /api/chat/stream` (Gemini server-side streaming, optional)
+- `POST /api/chat/local/save` (persist a response generated on-device by WebLLM)
 
 ## Current scope
-This is an original AI assistant using the Gemini API, not a copy of OpenAI's proprietary ChatGPT service. Image/document input, voice, password reset, and account deletion are not included in this increment. Streaming uses the Gemini streaming API and saves the completed exchange to MongoDB.
+This is an original AI assistant using open-weight Qwen locally in the browser by default, with optional Gemini API support, not a copy of OpenAI's proprietary ChatGPT service. Image/document input, voice, password reset, and account deletion are not included in this increment. Streaming uses the Gemini streaming API and saves the completed exchange to MongoDB.
+
+
+## Browser-local AI (no cloud API key)
+
+The default chat provider runs the open-weight Qwen2.5 0.5B Instruct model directly in the browser using WebLLM and WebGPU. The model is downloaded on first use and cached by the browser. Select **Load local model** before chatting to check device support and show download progress. Prompts and generated text are processed on the device; only the completed user/assistant exchange is sent to the authenticated API to save in MongoDB.
+
+Requirements and limitations:
+- A browser/device with working WebGPU and enough GPU memory is required. WebGPU is not available on every phone or browser; unsupported devices cannot use this local provider.
+- The first model download can be large and requires an internet connection. Later use may reuse the browser cache.
+- Local inference uses the device's own memory, battery, and GPU. Performance varies significantly by device.
+- The Render API does not host or run the model. It only handles account/session security and conversation persistence.
+- The Qwen model runs with its published model weights. The separate Training Studio LoRA adapters are not yet loaded into this browser runtime.
