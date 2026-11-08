@@ -28,6 +28,7 @@ export default function App() {
   const [editingChatId, setEditingChatId] = useState(null);
   const [editingTitle, setEditingTitle] = useState("");
   const bottomRef = useRef(null);
+  const composerRef = useRef(null);
   const active = useMemo(() => chats.find(c => c.id === activeId) || null, [chats, activeId]);
 
   const authHeaders = () => ({ "Content-Type": "application/json", "X-CSRF-Token": csrf });
@@ -144,6 +145,7 @@ export default function App() {
     });
     setActiveId(localId);
     setInput("");
+    if (composerRef.current) composerRef.current.style.height = "auto";
     setBusy(true);
     setError("");
     try {
@@ -233,6 +235,8 @@ export default function App() {
   }
 
   async function deleteChat(id) {
+    const chat = chats.find(item => item.id === id);
+    if (!window.confirm(`Delete "${chat?.title || "this conversation"}"? This cannot be undone.`)) return;
     try {
       const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": csrf } });
       if (!response.ok && response.status !== 404) throw new Error("Could not delete this chat.");
@@ -316,7 +320,7 @@ export default function App() {
             {busy && !active?.messages?.at(-1)?.content && <article className="message assistant"><div className="message-avatar"><Sparkles size={15} /></div><div className="message-body"><div className="message-name">JustAI</div><div className="typing"><i /><i /><i /></div></div></article>}<div ref={bottomRef} />
           </div>}
         </section>
-        <div className="composer-wrap">{error && <div className="error-note"><span>{error}</span><button onClick={() => setError("")}><X size={14} /></button></div>}<div className="composer"><textarea rows="1" value={input} onChange={e => setInput(e.target.value)} onKeyDown={keyDown} placeholder="Message JustAI..." aria-label="Message JustAI" /><div className="composer-footer"><span className="composer-hint">JustAI can make mistakes. Check important information.</span><button className="send-btn" disabled={!input.trim() || busy} onClick={() => sendMessage()} aria-label="Send message"><ArrowUp size={19} /></button></div></div><div className="powered">MADE FOR CURIOUS MINDS <span>·</span> JUSTAI</div></div>
+        <div className="composer-wrap">{error && <div className="error-note"><span>{error}</span><button onClick={() => setError("")}><X size={14} /></button></div>}<div className="composer"><textarea ref={composerRef} rows="1" value={input} onChange={e => { setInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 150) + "px"; }} onKeyDown={keyDown} placeholder="Message JustAI..." aria-label="Message JustAI" /><div className="composer-footer"><span className="composer-hint">JustAI can make mistakes. Check important information.</span><button className="send-btn" disabled={!input.trim() || busy} onClick={() => sendMessage()} aria-label="Send message"><ArrowUp size={19} /></button></div></div><div className="powered">MADE FOR CURIOUS MINDS <span>·</span> JUSTAI</div></div>
         </>}
       </main>
     </div>
