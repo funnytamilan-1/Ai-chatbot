@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { ArrowUp, MessageSquarePlus, Plus, Sparkles, Sun, Moon, Menu, X, Trash2, Copy, Check, LogOut, UserRound } from "lucide-react";
+import { ArrowUp, MessageSquarePlus, Plus, Sparkles, Sun, Moon, Menu, X, Trash2, Copy, Check, LogOut, UserRound, Pencil } from "lucide-react";
 
 const API = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const THEME_KEY = "justai_theme_v1";
@@ -23,6 +23,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [light, setLight] = useState(() => localStorage.getItem(THEME_KEY) === "light");
   const [copied, setCopied] = useState("");
+  const [editingChatId, setEditingChatId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState("");
   const bottomRef = useRef(null);
   const active = useMemo(() => chats.find(c => c.id === activeId) || null, [chats, activeId]);
 
@@ -163,6 +165,29 @@ export default function App() {
     } finally { setBusy(false); }
   }
 
+  function beginRename(chat) {
+    setEditingChatId(chat.id);
+    setEditingTitle(chat.title);
+  }
+
+  async function saveRename(id) {
+    const title = editingTitle.trim();
+    if (!title) { setError("Chat title cannot be empty."); return; }
+    try {
+      const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+        body: JSON.stringify({ title }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || "Could not rename this chat.");
+      setChats(prev => prev.map(c => c.id === id ? { ...c, title } : c));
+      setEditingChatId(null);
+      setEditingTitle("");
+    } catch (e) { setError(e.message); }
+  }
+
   async function deleteChat(id) {
     try {
       const response = await fetch(API + "/api/chats/" + encodeURIComponent(id), { method: "DELETE", credentials: "include", headers: { "X-CSRF-Token": csrf } });
@@ -218,8 +243,14 @@ export default function App() {
         <div className="chat-list">
           {chats.length === 0 && <p className="empty-history">Your conversations will appear here.</p>}
           {chats.map(c => <div key={c.id} className={"chat-item " + (c.id === activeId ? "selected" : "")}>
-            <button className="chat-select" onClick={() => openChat(c.id)}><MessageSquarePlus size={15} /><span>{c.title}</span></button>
-            <button className="delete-chat" aria-label="Delete chat" onClick={() => deleteChat(c.id)}><Trash2 size={14} /></button>
+            {editingChatId === c.id ? <form className="rename-form" onSubmit={e => { e.preventDefault(); saveRename(c.id); }}>
+              <input autoFocus aria-label="New chat title" maxLength={80} value={editingTitle} onChange={e => setEditingTitle(e.target.value)} onKeyDown={e => { if (e.key === "Escape") setEditingChatId(null); }} />
+              <button type="submit" aria-label="Save chat title"><Check size={14} /></button>
+            </form> : <>
+              <button className="chat-select" onClick={() => openChat(c.id)}><MessageSquarePlus size={15} /><span>{c.title}</span></button>
+              <button className="rename-chat" aria-label={"Rename " + c.title} onClick={() => beginRename(c)}><Pencil size={13} /></button>
+              <button className="delete-chat" aria-label={"Delete " + c.title} onClick={() => deleteChat(c.id)}><Trash2 size={14} /></button>
+            </>}
           </div>)}
         </div>
         <div className="sidebar-bottom">
