@@ -129,13 +129,15 @@ export default function App() {
     if (!prompt || busy) return;
     const previous = active?.messages || [];
     const userMessage = { id: crypto.randomUUID(), role: "user", content: prompt };
+    const assistantId = crypto.randomUUID();
+    const assistantMessage = { id: assistantId, role: "assistant", content: "" };
     const localId = activeId || "pending-" + crypto.randomUUID();
     const title = active?.title || prompt.slice(0, 48);
     setChats(prev => {
       const found = prev.some(c => c.id === localId);
       const next = found
-        ? prev.map(c => c.id === localId ? { ...c, title, messages: [...c.messages, userMessage], updatedAt: Date.now() } : c)
-        : [{ id: localId, title, messages: [userMessage], updatedAt: Date.now() }, ...prev];
+        ? prev.map(c => c.id === localId ? { ...c, title, messages: [...c.messages, userMessage, assistantMessage], updatedAt: Date.now() } : c)
+        : [{ id: localId, title, messages: [userMessage, assistantMessage], updatedAt: Date.now() }, ...prev];
       return next;
     });
     setActiveId(localId);
@@ -145,24 +147,64 @@ export default function App() {
     try {
       const history = previous.slice(-20).map(m => ({ role: m.role === "assistant" ? "model" : "user", content: m.content }));
       const body = { message: prompt, history };
-      if (active?.id && !active.id.startsWith("pending-")) body.chat_id = active.id;
-      const response = await fetch(API + "/api/chat", { method: "POST", credentials: "include", headers: authHeaders(), body: JSON.stringify(body) });
-      const data = await response.json().catch(() => ({}));
+      if (activeId && !activeId.startsWith("pending-")) body.chat_id = activeId;
+      const response = await fetch(API + "/api/chat/stream", {
+        method: "POST",
+        credentials: "include",
+        headers: authHeaders(),
+        body: JSON.stringify(body),
+      });
       if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
         if (response.status === 401) signOut();
         throw new Error(data.detail || "Could not get a response. Please try again.");
       }
-      const serverId = data.chat_id;
-      const assistantMessage = { id: crypto.randomUUID(), role: "assistant", content: data.reply, model: data.model };
-      setChats(prev => {
-        const current = prev.find(c => c.id === localId);
-        const updated = { ...(current || { title }), id: serverId, title, messages: [...(current?.messages || [userMessage]), assistantMessage], updatedAt: Date.now() };
-        return [updated, ...prev.filter(c => c.id !== localId && c.id !== serverId)];
-      });
-      setActiveId(serverId);
+      if (!response.body) throw new Error("Streaming is not supported by this browser.");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamedText = "";
+      let completed = false;
+      const handleEvent = raw => {
+        if (!raw.startsWith("data:")) return;
+        const payload = raw.slice(5).trim();
+        if (!payload) return;
+        let event;
+        try { event = JSON.parse(payload); } catch { return; }
+        if (event.error) throw new Error(event.error);
+        if (typeof event.text === "string" && event.text) {
+          streamedText += event.text;
+          setChats(prev => prev.map(chat => chat.id === localId
+            ? { ...chat, messages: chat.messages.map(message => message.id === assistantId ? { ...message, content: streamedText } : message) }
+            : chat));
+        }
+        if (event.done) {
+          completed = true;
+          const serverId = event.chat_id;
+          setChats(prev => {
+            const current = prev.find(chat => chat.id === localId);
+            if (!current) return prev;
+            const updated = { ...current, id: serverId, title, updatedAt: Date.now() };
+            return [updated, ...prev.filter(chat => chat.id !== localId && chat.id !== serverId)];
+          });
+          setActiveId(serverId);
+        }
+      };
+      while (true) {
+        const { value: chunk, done } = await reader.read();
+        buffer += decoder.decode(chunk || new Uint8Array(), { stream: !done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) handleEvent(line.trimEnd());
+        if (done) break;
+      }
+      if (buffer.trim()) handleEvent(buffer.trimEnd());
+      if (!completed) throw new Error(streamedText ? "The response ended before JustAI finished." : "JustAI did not return a response.");
     } catch (e) {
       setError(e.message || "Could not reach the JustAI server.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
 
   function beginRename(chat) {
