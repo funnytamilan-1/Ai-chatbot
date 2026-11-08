@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
 from pwdlib import PasswordHash
+from pymongo.errors import DuplicateKeyError
 
 APP_NAME = "JustAI API"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -153,8 +154,11 @@ async def register(payload: AuthInput, response: Response):
     if await store.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
     user = {"_id": str(uuid4()), "name": payload.name.strip(), "email": email, "password_hash": password_hash.hash(payload.password), "created_at": datetime.now(timezone.utc)}
+    try:
+        await store.users.insert_one(user)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
     set_session_cookies(response, user["_id"])
-    await store.users.insert_one(user)
     return {"user": public_user(user)}
 
 
