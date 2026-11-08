@@ -47,3 +47,44 @@ def test_csrf_check_rejects_missing_or_mismatched_token():
     with pytest.raises(HTTPException) as missing:
         asyncio.run(main.require_csrf(csrf_cookie="csrf-value", csrf_header=None))
     assert missing.value.status_code == 403
+
+
+def test_training_dataset_accepts_valid_conversations():
+    dataset = main.TrainingDatasetInput(
+        name="Python basics",
+        examples=[
+            {"messages": [
+                {"role": "user", "content": "What is Python?"},
+                {"role": "assistant", "content": "Python is a programming language."},
+            ]},
+            {"messages": [
+                {"role": "user", "content": "What is an API?"},
+                {"role": "assistant", "content": "An API lets software communicate."},
+            ]},
+        ],
+    )
+    assert len(dataset.examples) == 2
+
+
+def test_training_dataset_rejects_examples_without_assistant_answer():
+    with pytest.raises(ValidationError):
+        main.TrainingDatasetInput(
+            name="Invalid set",
+            examples=[
+                {"messages": [
+                    {"role": "user", "content": "Question only"},
+                    {"role": "user", "content": "Another user message"},
+                ]},
+                {"messages": [
+                    {"role": "user", "content": "Question"},
+                    {"role": "assistant", "content": "Answer"},
+                ]},
+            ],
+        )
+
+
+def test_training_job_restricts_epochs_and_lora_rank():
+    valid = main.TrainingJobInput(dataset_id="12345678-1234-1234-1234-123456789012", epochs=2, lora_rank=16)
+    assert valid.epochs == 2
+    with pytest.raises(ValidationError):
+        main.TrainingJobInput(dataset_id="12345678-1234-1234-1234-123456789012", epochs=10, lora_rank=16)
