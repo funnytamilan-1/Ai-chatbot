@@ -168,8 +168,8 @@ async def login(payload: LoginInput, response: Response):
     user = await database().users.find_one({"email": str(payload.email).lower().strip()})
     if not user or not password_hash.verify(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
-    set_session_cookies(response, user["_id"])
-    return {"user": public_user(user)}
+    csrf_token = set_session_cookies(response, user["_id"])
+    return {"user": public_user(user), "csrf_token": csrf_token}
 
 
 @app.post("/api/auth/logout")
