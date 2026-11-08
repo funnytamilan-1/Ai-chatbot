@@ -97,10 +97,8 @@ export default function App() {
       localStorage.setItem(TOKEN_KEY, data.token);
       setToken(data.token);
       setUser(data.user);
-      const items = [];
-      setChats(items);
-      setActiveId(null);
       setAuthPassword("");
+      await loadChats(data.token);
     } catch (e) { setAuthError(typeof e.message === "string" ? e.message : "Something went wrong."); }
     finally { setAuthBusy(false); }
   }
