@@ -193,6 +193,9 @@ export default function App() {
     } catch (e) {
       setModelState(current => current === "loading" ? "error" : current);
       setModelProgress(e.message || "Local AI could not start.");
+      setChats(prev => prev.map(chat => chat.id === localId
+        ? { ...chat, messages: chat.messages.filter(message => message.id !== assistantId || message.content) }
+        : chat));
       setError(e.message || "Could not run the local AI model.");
     } finally {
       setBusy(false);
