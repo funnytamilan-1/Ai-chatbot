@@ -129,8 +129,9 @@ async def register(payload: AuthInput):
     if await store.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
     user = {"_id": str(uuid4()), "name": payload.name.strip(), "email": email, "password_hash": password_hash.hash(payload.password), "created_at": datetime.now(timezone.utc)}
+    token = token_for(user["_id"])
     await store.users.insert_one(user)
-    return {"token": token_for(user["_id"]), "user": public_user(user)}
+    return {"token": token, "user": public_user(user)}
 
 
 @app.post("/api/auth/login")
