@@ -10,6 +10,7 @@ A mobile-first, full-stack AI assistant built with React + Vite, FastAPI, MongoD
 - MongoDB-backed conversations synced to the signed-in account
 - Open, rename, delete, and automatically title chat history
 - Gemini-powered answers with recent conversation context
+- Server-sent-event streaming so assistant text appears as it is generated
 - Tanglish/Tamil-aware assistant instructions
 - Markdown and code rendering, copy responses, and prompt starters
 - Gemini and database credentials stay on the backend
@@ -57,7 +58,8 @@ Set `CORS_ORIGINS` to the exact deployed frontend origin. The frontend sends cre
 - `GET /`, `GET /health`
 - `POST /api/auth/register`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET /api/auth/me`
 - `GET /api/chats`, `GET /api/chats/{id}`, `PATCH /api/chats/{id}`, `DELETE /api/chats/{id}`
-- `POST /api/chat`
+- `POST /api/chat` (complete response)
+- `POST /api/chat/stream` (server-sent-event streaming)
 
 ## Current scope
-This is an original AI assistant using the Gemini API, not a copy of OpenAI's proprietary ChatGPT service. Image/document input, voice, streaming responses, password reset, and account deletion are not included in this increment.
+This is an original AI assistant using the Gemini API, not a copy of OpenAI's proprietary ChatGPT service. Image/document input, voice, password reset, and account deletion are not included in this increment. Streaming uses the Gemini streaming API and saves the completed exchange to MongoDB.
