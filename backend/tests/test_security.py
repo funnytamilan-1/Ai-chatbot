@@ -83,6 +83,14 @@ def test_training_dataset_rejects_examples_without_assistant_answer():
         )
 
 
+def test_training_example_requires_at_least_one_user_message():
+    with pytest.raises(ValidationError):
+        main.TrainingExample(messages=[
+            {"role": "system", "content": "You are helpful."},
+            {"role": "assistant", "content": "Hello."},
+        ])
+
+
 def test_training_job_restricts_epochs_and_lora_rank():
     valid = main.TrainingJobInput(dataset_id="12345678-1234-1234-1234-123456789012", epochs=2, lora_rank=16)
     assert valid.epochs == 2
