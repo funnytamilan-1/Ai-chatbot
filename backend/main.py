@@ -207,7 +207,7 @@ async def login(payload: LoginInput, response: Response):
 
 
 @app.post("/api/auth/logout")
-async def logout(response: Response):
+async def logout(response: Response, _csrf=Depends(require_csrf)):
     response.delete_cookie(COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=True, samesite=COOKIE_SAMESITE)
     response.delete_cookie(CSRF_COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=True, samesite=COOKIE_SAMESITE)
     return {"signed_out": True}
@@ -416,16 +416,17 @@ async def chat_stream(payload: ChatRequest, user=Depends(current_user), _csrf=De
                 yield "data: " + json.dumps({"error": "The AI provider returned an empty response."}) + "\n\n"
                 return
             now = datetime.now(timezone.utc)
-            messages = (record or {}).get("messages", [])
-            messages.extend([
-                {"role": "user", "content": payload.message.strip()},
-                {"role": "model", "content": reply},
-            ])
             title = (record or {}).get("title") or payload.message.strip()[:48] or "New chat"
             await store.chats.update_one(
                 {"_id": chat_id, "user_id": user["_id"]},
-                {"$set": {"title": title, "messages": messages[-100:], "updated_at": now},
-                 "$setOnInsert": {"created_at": now}},
+                {
+                    "$set": {"title": title, "updated_at": now},
+                    "$push": {"messages": {"$each": [
+                        {"role": "user", "content": payload.message.strip()},
+                        {"role": "model", "content": reply},
+                    ], "$slice": -100}},
+                    "$setOnInsert": {"created_at": now},
+                },
                 upsert=True,
             )
             yield "data: " + json.dumps({"done": True, "chat_id": chat_id, "model": GEMINI_MODEL}) + "\n\n"
@@ -484,12 +485,17 @@ async def chat(payload: ChatRequest, user=Depends(current_user), _csrf=Depends(r
     except httpx.RequestError:
         raise HTTPException(status_code=502, detail="Could not connect to the AI provider.")
     now = datetime.now(timezone.utc)
-    messages = (record or {}).get("messages", [])
-    messages.extend([{"role": "user", "content": payload.message.strip()}, {"role": "model", "content": reply}])
     title = (record or {}).get("title") or payload.message.strip()[:48] or "New chat"
     await store.chats.update_one(
         {"_id": chat_id, "user_id": user["_id"]},
-        {"$set": {"title": title, "messages": messages[-100:], "updated_at": now}, "$setOnInsert": {"created_at": now}},
+        {
+            "$set": {"title": title, "updated_at": now},
+            "$push": {"messages": {"$each": [
+                {"role": "user", "content": payload.message.strip()},
+                {"role": "model", "content": reply},
+            ], "$slice": -100}},
+            "$setOnInsert": {"created_at": now},
+        },
         upsert=True,
     )
     return {"reply": reply, "model": GEMINI_MODEL, "chat_id": chat_id}
