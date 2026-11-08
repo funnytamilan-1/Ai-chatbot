@@ -9,13 +9,13 @@ The FastAPI service stores datasets and queues jobs. Actual model training runs 
 - Persistent storage for model artifacts. Do not use an ephemeral filesystem for production model files.
 - The same MongoDB database configured for the JustAI API.
 
-Install the optional training dependencies from `backend/`:
+Install a PyTorch build that matches your machine (use the official PyTorch install selector for CUDA-enabled systems), then install the optional training dependencies from `backend/`:
 
 ```bash
 pip install -r requirements-training.txt
 ```
 
-Set environment variables in the worker environment:
+Copy `backend/training/.env.example` as a reference, then set these environment variables in the worker environment:
 
 - `MONGODB_URI`: the same MongoDB Atlas connection string as the API.
 - `MONGODB_DATABASE=justai`
