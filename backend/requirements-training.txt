@@ -1,0 +1,8 @@
+# Install in a dedicated training environment, not the Render API service.
+-r requirements.txt
+torch>=2.5,<3
+transformers>=4.49,<5
+peft>=0.14,<0.18
+datasets>=3.3,<4
+accelerate>=1.4,<2
+bitsandbytes>=0.45,<1; platform_system == "Linux"
