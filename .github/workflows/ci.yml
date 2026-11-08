@@ -31,5 +31,5 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
-      - run: python -m compileall -q main.py tests
+      - run: python -m compileall -q main.py tests training
       - run: python -m pytest -q
