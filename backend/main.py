@@ -5,6 +5,9 @@ from typing import Literal
 from uuid import uuid4
 
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 import jwt
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -201,7 +204,7 @@ async def chat(payload: ChatRequest, user=Depends(current_user)):
     body = {"systemInstruction": {"parts": [{"text": system_prompt}]}, "contents": contents, "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096}}
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-            response = await client.post(url, params={"key": GEMINI_API_KEY}, json=body)
+            response = await client.post(url, headers={"x-goog-api-key": GEMINI_API_KEY}, json=body)
         if response.status_code >= 400:
             try:
                 detail = response.json().get("error", {}).get("message", "AI provider request failed")
