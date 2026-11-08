@@ -68,7 +68,7 @@ export default function App() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [active?.messages, busy]);
   useEffect(() => { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); }, [light]);
   useEffect(() => {
-    if (!token || !activeId || active?.messages?.length || activeId.startsWith("pending-")) return;
+    if (!user || !activeId || active?.messages?.length || activeId.startsWith("pending-")) return;
     let cancelled = false;
     fetch(API + "/api/chats/" + encodeURIComponent(activeId), { credentials: "include" })
       .then(async response => {
