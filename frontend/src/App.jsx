@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { ArrowUp, MessageSquarePlus, Plus, Sparkles, Sun, Moon, Menu, X, Trash2, Copy, Check, LogOut, UserRound, Pencil } from "lucide-react";
+import TrainingStudio from "./TrainingStudio.jsx";
+import { ArrowUp, MessageSquarePlus, Plus, Sparkles, Sun, Moon, Menu, X, Trash2, Copy, Check, LogOut, UserRound, Pencil, BrainCircuit } from "lucide-react";
 
 const API = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
 const THEME_KEY = "justai_theme_v1";
@@ -21,6 +22,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [studioOpen, setStudioOpen] = useState(false);
   const [light, setLight] = useState(() => localStorage.getItem(THEME_KEY) === "light");
   const [copied, setCopied] = useState("");
   const [editingChatId, setEditingChatId] = useState(null);
@@ -281,6 +283,7 @@ export default function App() {
       <aside className={"sidebar " + (sidebarOpen ? "sidebar-open" : "")}>
         <div className="brand-row"><div className="brand-mark"><Sparkles size={19} /></div><span className="brand-name">just<span>ai</span></span><button className="icon-btn sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar"><X size={18} /></button></div>
         <button className="new-chat" onClick={newChat}><Plus size={17} /> New chat</button>
+        <button className={"training-nav " + (studioOpen ? "active" : "")} onClick={() => { setStudioOpen(true); setSidebarOpen(false); }}><BrainCircuit size={17} /> Training Studio</button>
         <div className="side-label">YOUR SPACE</div>
         <div className="chat-list">
           {chats.length === 0 && <p className="empty-history">Your conversations will appear here.</p>}
@@ -302,6 +305,7 @@ export default function App() {
         </div>
       </aside>
       <main className="main-panel">
+        {studioOpen ? <TrainingStudio api={API} csrf={csrf} onBack={() => setStudioOpen(false)} /> : <>
         <header className="topbar"><div className="top-left"><button className="icon-btn menu-btn" onClick={() => setSidebarOpen(true)} aria-label="Open menu"><Menu size={20} /></button><span className="mobile-brand">just<span>ai</span></span><span className="model-pill"><span className="status-dot" /> JustAI <span className="model-muted">· Assistant</span></span></div><button className="icon-btn desktop-new" onClick={newChat} aria-label="New chat"><MessageSquarePlus size={18} /></button></header>
         <section className="conversation">
           {!active?.messages?.length ? <div className="welcome">
@@ -313,6 +317,7 @@ export default function App() {
           </div>}
         </section>
         <div className="composer-wrap">{error && <div className="error-note"><span>{error}</span><button onClick={() => setError("")}><X size={14} /></button></div>}<div className="composer"><textarea rows="1" value={input} onChange={e => setInput(e.target.value)} onKeyDown={keyDown} placeholder="Message JustAI..." aria-label="Message JustAI" /><div className="composer-footer"><span className="composer-hint">JustAI can make mistakes. Check important information.</span><button className="send-btn" disabled={!input.trim() || busy} onClick={() => sendMessage()} aria-label="Send message"><ArrowUp size={19} /></button></div></div><div className="powered">MADE FOR CURIOUS MINDS <span>·</span> JUSTAI</div></div>
+        </>}
       </main>
     </div>
   );
